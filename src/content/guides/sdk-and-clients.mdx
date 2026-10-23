@@ -1,0 +1,235 @@
+---
+title: SDK & Client Generation
+description: Generate typed API clients in TypeScript, Python, and Go from Prova's OpenAPI specification.
+---
+
+Prova does not require a proprietary monolithic SDK. Because the Prova API is strictly described with OpenAPI 3.1.0, you can generate fully typed, lightweight clients in any programming language.
+
+---
+
+## 1. TypeScript (Recommended)
+
+Generate TypeScript definitions directly from the published `openapi.yaml`:
+
+```bash
+npx openapi-typescript https://pilot.getprova.trade/api/v1/docs/openapi.json -o ./src/prova-api.ts
+```
+
+### Complete Runnable Client Example
+
+```typescript
+import type { paths } from './prova-api';
+
+type CreateEscrowBody =
+  paths['/escrows']['post']['requestBody']['content']['application/json'];
+type EscrowResponse =
+  paths['/escrows']['post']['responses']['201']['content']['application/json'];
+
+export class ProvaClient {
+  private baseUrl: string;
+  private clientId: string;
+  private clientSecret: string;
+  private accessToken: string | null = null;
+  private tokenExpiresAt: number = 0;
+
+  constructor(config: { baseUrl?: string; clientId: string; clientSecret: string }) {
+    this.baseUrl = config.baseUrl ?? 'https://pilot.getprova.trade/api/v1';
+    this.clientId = config.clientId;
+    this.clientSecret = config.clientSecret;
+  }
+
+  /** Obtains or refreshes an OAuth 2.0 access token */
+  async authenticate(): Promise<string> {
+    if (this.accessToken && Date.now() < this.tokenExpiresAt - 60_000) {
+      return this.accessToken;
+    }
+
+    const res = await fetch(`${this.baseUrl}/api-credentials/oauth/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'client_credentials',
+        client_id: this.clientId,
+        client_secret: this.clientSecret,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Authentication failed (${res.status}): ${err}`);
+    }
+
+    const data = await res.json();
+    this.accessToken = data.access_token;
+    this.tokenExpiresAt = Date.now() + data.expires_in * 1000;
+    return this.accessToken;
+  }
+
+  /** Creates an invoice escrow */
+  async createEscrow(payload: CreateEscrowBody): Promise<EscrowResponse> {
+    const token = await this.authenticate();
+    const res = await fetch(`${this.baseUrl}/escrows`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const requestId = res.headers.get('x-request-id');
+
+    if (!res.ok) {
+      const errorBody = await res.json().catch(() => ({}));
+      throw new Error(
+        `Prova API Error (${res.status}, req_id: ${requestId}): ${
+          errorBody.message || res.statusText
+        }`,
+      );
+    }
+
+    return (await res.json()) as EscrowResponse;
+  }
+
+  /** Queries a buyer credit score */
+  async getCreditScore(buyerAddress: string) {
+    const token = await this.authenticate();
+    const res = await fetch(`${this.baseUrl}/credit-score/${buyerAddress}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!res.ok) throw new Error(`Credit score query failed (${res.status})`);
+    return await res.json();
+  }
+}
+
+// Usage:
+// const client = new ProvaClient({
+//   clientId: process.env.PROVA_CLIENT_ID!,
+//   clientSecret: process.env.PROVA_CLIENT_SECRET!,
+// });
+// const escrow = await client.createEscrow({ amount: 10000, ... });
+```
+
+---
+
+## 2. Python (using `httpx`)
+
+```python
+import os
+import time
+import httpx
+
+class ProvaClient:
+    def __init__(self, client_id: str, client_secret: str, base_url: str = "https://pilot.getprova.trade/api/v1"):
+        self.base_url = base_url.rstrip("/")
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.access_token = None
+        self.expires_at = 0
+
+    def _ensure_token(self) -> str:
+        if self.access_token and time.time() < (self.expires_at - 60):
+            return self.access_token
+
+        with httpx.Client() as client:
+            resp = client.post(
+                f"{self.base_url}/api-credentials/oauth/token",
+                json={
+                    "grant_type": "client_credentials",
+                    "client_id": self.client_id,
+                    "client_secret": self.client_secret,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            self.access_token = data["access_token"]
+            self.expires_at = time.time() + data["expires_in"]
+            return self.access_token
+
+    def get_credit_score(self, buyer_address: str) -> dict:
+        token = self._ensure_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        with httpx.Client() as client:
+            resp = client.get(
+                f"{self.base_url}/credit-score/{buyer_address}",
+                headers=headers,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    def submit_policy_application(self, institution_id: str, payload: dict) -> dict:
+        token = self._ensure_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+        with httpx.Client() as client:
+            resp = client.post(
+                f"{self.base_url}/institutions/{institution_id}/policies",
+                headers=headers,
+                json=payload,
+            )
+            resp.raise_for_status()
+            return resp.json()
+```
+
+---
+
+## 3. Go Example
+
+```go
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"net/http"
+)
+
+type OAuthRequest struct {
+	GrantType    string `json:"grant_type"`
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+}
+
+type OAuthResponse struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	ExpiresIn   int    `json:"expires_in"`
+}
+
+func getAccessToken(baseURL, clientID, clientSecret string) (string, error) {
+	reqBody, _ := json.Marshal(OAuthRequest{
+		GrantType:    "client_credentials",
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+	})
+
+	resp, err := http.Post(baseURL+"/api-credentials/oauth/token", "application/json", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("auth error: status %d", resp.StatusCode)
+	}
+
+	var authResp OAuthResponse
+	if err := json.NewDecoder(resp.Body).Decode(&authResp); err != nil {
+		return "", err
+	}
+
+	return authResp.AccessToken, nil
+}
+```
+
+---
+
+## SDK Roadmap
+
+- **Q1 2027:** Official `@prova/sdk` for TypeScript with automatic SIWE sign-in, contract abstractions, and webhook verification helpers.
+- **Q2 2027:** Official Python SDK (`prova-sdk-py`) for data science and actuarial integration.
+- **Q3 2027:** Java SDK for core banking and institutional legacy core integrations.

@@ -1,53 +1,123 @@
 ---
-title: Authentication
-description: How to authenticate requests, and how to document your own scheme.
+title: Authentication & Security
+description: Interactive SIWE wallet sign-in, OAuth 2.0 client credentials, token rotation, and RBAC matrix.
 ---
 
-The Sample Posts API is intentionally public: no key, token, or header is
-required, so every request in this reference works the moment you press
-**Send**.
+Prova supports two authentication flows: **SIWE Bearer Tokens** for interactive frontend sessions, and **OAuth 2.0 Client Credentials** for server-to-server daemon processes.
 
-Your API almost certainly is not public. This page shows how to document the
-two most common schemes so readers always know exactly what to put in the
-request — replace it with the scheme your API uses.
+---
 
-## Documenting a bearer token
+## 1. Interactive Sign-In with Ethereum (SIWE)
 
-Show the header exactly as readers must send it, then where the token comes
-from:
+Interactive users authenticate using their Ethereum wallet ([EIP-4361](https://eips.ethereum.org/EIPS/eip-4361)) on **Arbitrum Sepolia** (Chain ID: `421614`).
 
+### The SIWE Sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User / Wallet
+    participant API as Prova Auth API
+    participant DB as Sessions Store
+
+    User->>API: POST /auth/wallet/nonce { wallet_address }
+    API-->>User: Returns single-use nonce (5m TTL)
+    User->>User: Formats EIP-4361 message & signs with private key
+    User->>API: POST /auth/wallet/verify { wallet_address, message, signature }
+    API->>API: Verifies signature against recovered address & nonce
+    API->>DB: Stores hashed refresh token
+    API-->>User: Returns JWT access_token (1h) + refresh_token (30d)
+```
+
+### Endpoints:
+1. `POST /api/v1/auth/wallet/nonce`:
+   ```json
+   { "wallet_address": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e" }
+   ```
+2. `POST /api/v1/auth/wallet/verify`:
+   ```json
+   {
+     "wallet_address": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
+     "message": "pilot.getprova.trade wants you to sign in with your Ethereum account...",
+     "signature": "0x1b2c3d..."
+   }
+   ```
+
+### Token Lifetimes & Rotation
+- **Access Token TTL:** 1 hour (`3600` seconds).
+- **Refresh Token TTL:** 30 days (`2592000` seconds).
+- **Hashed at Rest:** Refresh tokens are stored **SHA-256 hashed** in the database.
+- **Strict Rotation:** When you exchange a refresh token via `POST /api/v1/auth/tokens/refresh`, the previous refresh token is immediately invalidated. If an old refresh token is reused, the entire session chain is revoked to prevent replay attacks.
+- **Revocation / Logout:** `POST /api/v1/auth/tokens` invalidates the active session.
+
+---
+
+## 2. OAuth 2.0 Client Credentials
+
+For backend microservices, ERP connectors, and automated workflows:
+
+### 1. Minting Credentials
+An authenticated user generates a client key pair:
 ```bash
-curl --request GET \
-  --url 'https://api.yourproduct.com/v1/posts' \
-  --header 'Authorization: Bearer YOUR_API_TOKEN'
+curl -X POST https://pilot.getprova.trade/api/v1/api-credentials \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
+**Response (`201 Created`):**
+```json
+{
+  "client_id": "client_01HXYZ...",
+  "client_secret": "sec_89ab...",
+  "status": "ACTIVE",
+  "created_at": "2026-10-20T18:00:00.000Z"
+}
+```
+<Note type="warning" title="Store Your Secret Immediately">
+  The `client_secret` is shown **only once** upon creation. It is stored using `scrypt` hashing in the database and cannot be retrieved later.
+</Note>
 
-## Documenting an API key
-
+### 2. Token Exchange
+Exchange the credentials for a bearer token:
 ```bash
-curl --request GET \
-  --url 'https://api.yourproduct.com/v1/posts' \
-  --header 'X-Api-Key: YOUR_API_KEY'
+curl -X POST https://pilot.getprova.trade/api/v1/api-credentials/oauth/token \
+  -H "Content-Type: application/json" \
+  -d '{
+    "grant_type": "client_credentials",
+    "client_id": "client_01HXYZ...",
+    "client_secret": "sec_89ab..."
+  }'
 ```
 
-## Declare the scheme in OpenAPI
+---
 
-Add a security scheme to `openapi.yaml` and the generated endpoint pages will
-show the requirement — and the playground will prompt for the credential —
-automatically:
+## 3. Role-Based Access Control (RBAC) Matrix
 
-```yaml
-components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-security:
-  - bearerAuth: []
-```
+Prova enforces **institution-scoped RBAC**. Roles are assigned per institution:
 
-<Tip>
-  Tell readers where to create and revoke credentials, how long they live, and
-  what happens when one expires. Those three answers prevent most
-  authentication support tickets.
-</Tip>
+| Action | Owner | Admin | Underwriter | Viewer |
+| :--- | :---: | :---: | :---: | :---: |
+| Invite & remove institution members | ✓ | ✓ | — | — |
+| Create and configure products | ✓ | ✓ | — | — |
+| Publish insurance products | ✓ | ✓ | — | — |
+| Submit policy application (get quote) | ✓ | ✓ | ✓ | — |
+| Accept quote | ✓ | ✓ | ✓ | — |
+| Issue policy | ✓ | ✓ | — | — |
+| Activate policy (bind capital) | ✓ | ✓ | — | — |
+| Amend active policy | ✓ | ✓ | ✓ | — |
+| Submit claim | ✓ | ✓ | ✓ | — |
+| Start claim review | ✓ | ✓ | ✓ | — |
+| Approve / reject claim | ✓ | ✓ | ✓ | — |
+| Request settlement & settle claim | ✓ | ✓ | — | — |
+| Query buyer credit score | ✓ | ✓ | ✓ | ✓ |
+| Read institution data | ✓ | ✓ | ✓ | ✓ |
+
+---
+
+## Common Authentication Errors
+
+| Status Code | Error Message | Cause & Resolution |
+| :--- | :--- | :--- |
+| `401` | `Bearer token is required` | The `Authorization` header is missing or improperly formatted. Use `Bearer <token>`. |
+| `401` | `Token verification failed` | The JWT has expired or the signature is invalid. Refresh or re-authenticate. |
+| `401` | `Invalid signature` | The SIWE message signature does not match the claimed wallet address or uses an expired nonce. |
+| `403` | `You are not a member of this institution` | The authenticated user does not have an active membership in the target institution. |
+| `403` | `Required role: OWNER or ADMIN` | The caller's role in the institution is insufficient for the requested mutating operation. |

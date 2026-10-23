@@ -1,0 +1,101 @@
+---
+title: Webhooks & Event Processing
+description: Inbound webhook architecture, HMAC signature verification, idempotency, and retry semantics.
+---
+
+Prova relies on asynchronous event streams to synchronize smart contract events on Arbitrum Sepolia with off-chain databases and partner services.
+
+<Note type="info" title="Inbound vs. Outbound Webhooks">
+  The current Prova platform acts as an **inbound webhook receiver** from blockchain indexers (QuickNode), coverage managers, and cross-chain relayers. Customer-facing outbound webhooks are currently scheduled on the development roadmap; institutions currently poll status endpoints or query audit logs.
+</Note>
+
+---
+
+## Webhook Endpoints
+
+| Endpoint | Method | Expected Signature Header | Source System |
+| :--- | :--- | :--- | :--- |
+| `/api/v1/webhooks/quicknode` | `POST` | `x-qn-signature`, `x-qn-nonce`, `x-qn-timestamp` | QuickNode RPC / Indexer |
+| `/api/v1/webhooks/coverage` | `POST` | `x-coverage-signature` | Reineira Coverage Manager |
+| `/api/v1/webhooks/relay-callback` | `POST` | Optional token | Settlement Relayers |
+
+---
+
+## 1. QuickNode Escrow Webhook
+
+QuickNode streams on-chain events emitted by `ConfidentialEscrow` (e.g., `EscrowCreated`, `EscrowSettled`, `EscrowDefaulted`).
+
+### Signature Verification
+The receiver reconstructs and validates QuickNode's HMAC signature:
+```typescript
+const signature = req.headers['x-qn-signature'];
+const nonce = req.headers['x-qn-nonce'];
+const timestamp = req.headers['x-qn-timestamp'];
+const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+
+const isValid = verifier.verify(rawBody, signature, nonce, timestamp);
+if (!isValid) {
+  // Rejects with 401 Unauthorized
+}
+```
+
+### Idempotency & Deduplication
+Every escrow event is indexed by its blockchain transaction hash (`tx_hash`) in the `escrow_events` database table. If QuickNode delivers duplicate webhook payloads during re-orgs or connection retries, the event handler processes the transaction idempotently:
+- If `tx_hash` already exists in `escrow_events`, the duplicate event is acknowledged with `200 OK` without triggering duplicate downstream actions.
+
+---
+
+## 2. Coverage Manager Webhook
+
+Monitors policy underwriting approvals, capital allocations, and pool events.
+
+### Verification Algorithm
+The receiver validates the payload using HMAC-SHA256 with constant-time equality check (`timingSafeEqual`) to prevent timing side-channel attacks:
+
+```typescript
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+function verifyCoverageSignature(rawBody: string, signature: string, secret: string): boolean {
+  const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
+  const sigBuf = Buffer.from(signature);
+  const expectedBuf = Buffer.from(expected);
+
+  if (sigBuf.length !== expectedBuf.length) return false;
+  return timingSafeEqual(sigBuf, expectedBuf);
+}
+```
+
+If `COVERAGE_WEBHOOK_SECRET` is not configured in production, the handler returns `500 Internal Server Error` (signaling an operational misconfiguration) rather than silently accepting unsigned payloads.
+
+---
+
+## 3. Webhook Error Taxonomy & Retry Rules
+
+Upstream services and indexers should configure their retry policies according to Prova's HTTP status responses:
+
+| Status Code | Meaning | Recommended Retry Action |
+| :--- | :--- | :--- |
+| `200 OK` | Event processed or idempotently acknowledged | Do not retry. Transaction logged. |
+| `400 Bad Request` | Malformed JSON or invalid event shape | **Do not retry.** Permanent payload defect. |
+| `401 Unauthorized` | Signature missing or HMAC verification failed | **Do not retry.** Check webhook secret. |
+| `429 Too Many Requests` | Exceeded 300 req/min rate limit | **Retry** with exponential backoff honoring `Retry-After`. |
+| `500 Server Error` | Database connection lost or missing server secret | **Retry** with exponential backoff until service recovers. |
+
+---
+
+## 4. Observability & Tracing
+
+Every webhook response carries the `x-request-id` header:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+x-request-id: req_01j982a7b1c4e9f...
+
+{
+  "processed": 1,
+  "request_id": "req_01j982a7b1c4e9f..."
+}
+```
+
+Log messages record child logger context tagged with `{ requestId, nonce, timestamp }` for instant correlation with QuickNode webhook delivery logs.

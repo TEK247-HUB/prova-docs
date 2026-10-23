@@ -1,45 +1,75 @@
 ---
 title: Introduction
-description: Give readers a clear path from their first question to a result they can verify.
+description: Programmable trade-credit insurance infrastructure for financial institutions, underwriters, and liquidity providers.
 mode: home
 ---
 
 <Hero
-  title="Build documentation around the reader"
-  subtitle="Start with a useful first result, organize what follows, and publish every format from one reviewable source."
+  title="Programmable trade credit infrastructure"
+  subtitle="Issue, underwrite, manage, and settle trade credit protection on-chain with confidential computing and pooled liquidity."
   primaryLabel="Get started"
   primaryHref="/quickstart"
-  secondaryLabel="Publish your docs"
-  secondaryHref="/guides/create-a-site"
+  secondaryLabel="Explore the API"
+  secondaryHref="/api"
 />
 
-## Build the reader journey
+## What is Prova?
 
-Begin with the task that brings most readers to your documentation, then make
-the next useful step obvious.
+**Prova** is developer infrastructure for trade-credit insurance. Financial institutions, trade credit insurers, commercial banks, export credit agencies, factoring firms, and risk syndicates plug into Prova to issue, manage, and settle invoice protection on-chain.
+
+<Note type="info" title="Infrastructure, not an insurer">
+  Prova is **non-custodial, non-risk-bearing, unregulated, and not an insurance company, underwriter, or capital custodian**. Prova authors smart contract plugins that emit cryptographically verified underwriting decisions. Pooled capital, premiums, and settlement payouts reside exclusively inside decentralized protocol contracts on Arbitrum Sepolia; Prova never custodies or moves client funds.
+</Note>
+
+## The problem Prova solves
+
+Traditional trade-credit insurance (TCI) is slow, opaque, and inaccessible to high-growth corridors:
+- **Lengthy paper underwriting:** Traditional policy issuance takes weeks of financial statement audits, leaving modern supply chains unprotected.
+- **Fragmented settlement:** Claims for buyer protracted default take 90 to 180 days to settle through manual claims adjustment and wire transfers.
+- **Privacy vs. on-chain transparency:** Institutions cannot publish debtor identities, credit limits, or proprietary risk pricing to public blockchains.
+- **Concentration risk:** Uncoordinated lending across multiple factoring desks leads to undisclosed debtor overexposure and sudden defaults.
+
+Prova resolves these challenges by bridging **off-chain risk scoring** with **on-chain confidential execution**:
+1. **Confidential Underwriting:** Sensitive credit limits, premium curves, and buyer risk scores are encrypted with Fully Homomorphic Encryption (FHE via Fhenix CoFHE). Math is computed on encrypted values without decrypting them on-chain.
+2. **Deterministic Settlement:** Invoice escrows release automatically upon maturity or trigger claim windows for protracted default.
+3. **Tamper-Proof Solvency Guardrails:** Aggregate debtor exposure is bounded by smart contracts across all pools simultaneously, preventing credit limit evasion through pool splitting.
+
+---
+
+## Core architecture & system boundaries
+
+Prova enforces a strict architectural boundary: **on-chain only what requires blockchain trust** (authority to release pooled capital, immutable public settlement, or tamper-proof solvency caps). Everything the backend can be trusted to coordinate remains off-chain.
 
 <CardGroup cols="2">
-  <Card title="Write your quickstart" icon="party-horn" href="/quickstart">
-    Turn prerequisites, setup, one realistic task, and verification into a short path.
+  <Card title="Smart Contract Plugins" icon="shield-check" href="/concepts">
+    Solidity plugins for ReineiraOS on Arbitrum Sepolia: `TradeInvoiceResolver` (default trigger) and `TradeCreditInsurancePolicy` (FHE risk pricing).
   </Card>
-  <Card title="Organize your navigation" icon="grid-round" href="/customization">
-    Group related tasks and references around how people use your product.
+  <Card title="REST API & Webhooks" icon="code-simple" href="/api">
+    TypeScript clean architecture API for institutional onboarding, product catalog, policy lifecycle, and inbound event ingestion.
   </Card>
-  <Card title="Document your API" icon="code-simple" href="/api">
-    Replace `openapi.yaml` to publish browsable endpoint docs with a live playground.
+  <Card title="Confidential Risk Engine" icon="lock" href="/guides/credit-scoring">
+    A 4-signal buyer scoring model evaluating payment rate, DSO, volume, and default penalty into sealed CoFHE ciphertexts.
   </Card>
-  <Card title="Learn the Thally workflow" icon="wrench" href="/guides/create-a-site">
-    Create, publish, and update sites from the Cloud dashboard, the CLI, or your AI tools.
+  <Card title="Pooled Liquidity Rails" icon="coins" href="/guides/invoice-escrows">
+    Capital segregation in ReineiraOS contracts (`ConfidentialEscrow`, `PoolFactory`, `cUSDC`).
   </Card>
 </CardGroup>
 
-## Publish from one source
+---
 
-Thally turns the same reviewed content into HTML, search, agent discovery files,
-Markdown mirrors, and a read-only MCP surface — so people and AI tools read the
-same, current answer. Add only the locales your readers need.
+## Intended users & integration scenarios
 
-<Note type="info" title="Start with the product, not the template">
-  Replace this page with the questions, terminology, and workflows your readers
-  already use. Keep `docs.json` focused on the path between those tasks.
-</Note>
+- **Trade Credit Insurers:** Digitize existing underwriting guidelines into programmable premium curves and add-on matrices; automate issuance and claim validation.
+- **B2B Marketplaces & Platforms:** Protect supplier receivables at checkout by embedding programmatic invoice escrows with attached credit protection.
+- **Factoring Companies & Lenders:** Hedge non-payment risk on purchased invoices by binding coverage policies before advancing funds.
+- **Liquidity Providers & Underwriting Syndicates:** Stake capital into segregated risk pools and earn real-yield premiums on insured trade flows.
+
+---
+
+## How to navigate this documentation
+
+- **[Quickstart](/quickstart):** Authenticate with SIWE or OAuth 2.0 and execute your first API request in 5 minutes.
+- **[Core Concepts & Architecture](/concepts):** Understand the protocol boundary, smart contract roles, and FHE confidentiality model.
+- **[Integration Guides](/guides/invoice-escrows):** Step-by-step implementation walkthroughs for invoice escrows, policy lifecycles, claims, credit scoring, webhooks, and SDKs.
+- **[API Reference](/api):** Exhaustive documentation for every implemented REST endpoint, parameter, and response schema.
+- **[Operations & Troubleshooting](/environments):** Arbitrum Sepolia network parameters, deployed contract addresses, and diagnostic FAQs.

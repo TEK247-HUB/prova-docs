@@ -1,15 +1,39 @@
 ---
 title: Changelog
-description: Record product changes that alter how readers use the documented experience.
+description: Product releases, architecture milestones, and smart contract protocol updates.
 ---
 
-## v0.1.0
+## Phase 1 — Testnet Validation Release (Current)
 
-The first published version of this documentation.
+**Target Network:** Arbitrum Sepolia (`421614`)  
+**Deployment Status:** Testnet MVP Active
 
-- A task-focused introduction and quickstart
-- Browsable API documentation generated from `openapi.yaml`
-- Agent-readable discovery files and a read-only MCP endpoint
+- **Complete 59-Route REST API:** Full Clean Architecture backend covering Auth, Escrows, Products, Policies, Claims, Credit Scoring, Pools, and Webhooks.
+- **Interactive SIWE & Server OAuth 2.0:** Dual authentication paths with rotating refresh tokens and scrypt-hashed client credentials.
+- **4-Signal Credit Scoring Engine:** Off-chain scoring evaluating Payment Rate, DSO, Volume, and Default Penalties into sealed FHE ciphertexts.
+- **Inbound Webhook Verification:** HMAC signature validation for QuickNode on-chain event streams and Coverage Manager events with idempotency by transaction hash.
 
-Replace this entry with changes your readers need to understand. Lead with the
-impact, then link to the guide or reference that explains the new behavior.
+---
+
+## Milestone M3 — Claims Lifecycle & Immutable Audit Trail
+
+- **State Machine Enforcement:** Integrated deterministic claim workflow (`DRAFT` → `SUBMITTED` → `UNDER_REVIEW` → `APPROVED` → `SETTLEMENT_PENDING` → `SETTLED`).
+- **Policy Versioning Ledger:** Every lifecycle command emits an immutable policy version record with actor attribution and previous/new status.
+- **Disputed Debt Oracle:** Integrated `DisputeAttestation.sol` to exclude contested receivables from default claims.
+
+---
+
+## Milestone M2 — Institutional Underwriting Engine
+
+- **Multi-Tenant Policy Architecture:** Institutional workspace isolation with institution-scoped RBAC (`OWNER`, `ADMIN`, `UNDERWRITER`, `VIEWER`).
+- **Product Design & Configuration:** Programmable insurance products with configurable premium curves, currency parameters, and waiting periods.
+- **Underwriting State Machine:** Strict transitions (`QUOTED` → `ACCEPTED` → `ISSUED` → `ACTIVE` → `AMENDED`).
+
+---
+
+## Milestone M1 — Smart Contract Plugins on Arbitrum Sepolia
+
+- **`TradeInvoiceResolver` Deployment:** Implemented ReineiraOS `IConditionResolver` with protracted default rules and duplicate invoice detection.
+- **`TradeCreditInsurancePolicy` Deployment:** Implemented ReineiraOS `IUnderwriterPolicy` with Fhenix CoFHE homomorphic risk math.
+- **`DebtorExposureRegistry` Deployment:** Aggregate cross-pool concentration cap guardrail preventing limit evasion.
+- **Core Positioning Realignment:** Committed institutional positioning (2026-06-30): *Prova is trade credit infrastructure for existing big firms, powering incumbents rather than competing with them.*

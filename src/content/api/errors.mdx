@@ -1,0 +1,100 @@
+---
+title: Errors & Status Codes
+description: Complete error taxonomy, HTTP status codes, validation structures, and conflict handling.
+---
+
+Every error response returned by the Prova API conforms to a consistent JSON structure with clear, human-readable diagnostics and status codes.
+
+---
+
+## Standard Error Response Format
+
+```json
+{
+  "error": "Bad Request",
+  "message": "Invalid buyer address format",
+  "statusCode": 400
+}
+```
+
+Every response — whether success or error — contains an `x-request-id` response header for log correlation.
+
+---
+
+## Status Codes Table
+
+| Status Code | Meaning | Retryable? | Description |
+| :--- | :--- | :---: | :--- |
+| `200 OK` | Success | — | Standard successful response. |
+| `201 Created` | Resource Created | — | Successful creation of an escrow, policy, product, or claim. |
+| `204 No Content` | Success (No Body) | — | Successful revocation or logout. |
+| `400 Bad Request` | Invalid Request | No | Malformed JSON body or invalid request parameters. Fix request before retrying. |
+| `401 Unauthorized` | Auth Failure | Yes (after auth) | Missing, expired, or invalid token or signature. |
+| `403 Forbidden` | Access Denied | No | Insufficient role within the institution or attempted access to a foreign tenant. |
+| `404 Not Found` | Not Found | No | Resource ID does not exist or caller does not belong to the parent institution. |
+| `409 Conflict` | State Conflict | No | Attempted an illegal state machine transition (e.g., issuing a cancelled policy). |
+| `422 Unprocessable` | Validation Failed | No | Request body failed Zod schema validation. Includes `invalid_params` array. |
+| `429 Too Many Requests`| Rate Limited | Yes (after backoff)| Exceeded endpoint rate limit. Check `Retry-After` header. |
+| `500 Server Error` | Internal Failure | Yes (with backoff)| Server or database unexpected fault. |
+| `503 Service Unavailable`| Not Ready | Yes (with backoff)| Dependent infrastructure (database, RPC) is degraded. |
+
+---
+
+## Detailed Error Categories
+
+### 1. State Machine Conflicts (`409 Conflict`)
+When a lifecycle command is issued against a policy or claim that is not in a valid state to receive it:
+
+```json
+{
+  "error": "Conflict",
+  "message": "Illegal policy transition: cannot 'issue' from 'QUOTED'",
+  "statusCode": 409
+}
+```
+**Safety Guarantee:** Illegal state transitions are strictly non-mutating and produce no audit history or state changes.
+
+### 2. Validation Errors (`422 Unprocessable Entity`)
+When a request passes HTTP formatting but violates domain constraints:
+
+```json
+{
+  "error": "Unprocessable Entity",
+  "message": "Validation failed",
+  "invalid_params": [
+    {
+      "name": "requested_coverage_pct_bps",
+      "reason": "Number must be less than or equal to 10000"
+    }
+  ],
+  "statusCode": 422
+}
+```
+
+### 3. Rate Limit Errors (`429 Too Many Requests`)
+When client request frequency exceeds the route limit:
+
+```http
+HTTP/1.1 429 Too Many Requests
+Retry-After: 42
+X-RateLimit-Limit: 20
+X-RateLimit-Remaining: 0
+```
+
+```json
+{
+  "error": "Too Many Requests",
+  "message": "Rate limit exceeded for auth-nonce. Retry in 42s.",
+  "statusCode": 429
+}
+```
+
+---
+
+## Security Redaction Rules
+
+Prova strictly sanitizes all error responses. Error payloads will never expose:
+- Stack traces or internal source line numbers.
+- Secret credentials or private keys.
+- Database connection strings or internal network hostnames.
+- Third-party vendor identifiers or unmasked customer PII.

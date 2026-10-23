@@ -1,49 +1,66 @@
 ---
-title: API overview
+title: API Overview
 navTitle: Overview
-description: What this API reference covers and how to try every request live.
+description: Base URLs, protocol standards, request conventions, and correlation headers for the Prova API.
 ---
 
-This reference documents the Sample Posts API — a small, working API backed by
-the public [JSONPlaceholder](https://jsonplaceholder.typicode.com) service.
-Every endpoint page has a **Send** button that runs the real request from your
-browser, so you can inspect live responses before writing a line of code.
+The Prova API is organized around standard REST principles. It accepts JSON-encoded request bodies, returns JSON-encoded responses, and uses standard HTTP response codes, authentication, and verbs.
 
-## Base URL
+## Environments & Base URLs
 
-All requests use the same base URL:
+| Environment | Base URL | Network | Purpose |
+| :--- | :--- | :--- | :--- |
+| **Sandbox / Pilot** | `https://pilot.getprova.trade/api/v1` | Arbitrum Sepolia | Integration testing, institutional validation, and testnet escrows |
+| **Local Development** | `http://localhost:3000/api/v1` | Local Machine / Hardhat | Local testing with Docker / Node server |
 
-```text
-https://jsonplaceholder.typicode.com
+All API endpoints are versioned under the `/api/v1` path prefix. Health checks are served at the site root (`/health` and `/health/ready`).
+
+---
+
+## Standard Request Headers
+
+| Header | Description | Required |
+| :--- | :--- | :--- |
+| `Authorization` | Bearer token format: `Bearer <access_token>`. | Required for all authenticated routes. |
+| `Content-Type` | Must be `application/json` for all POST and PATCH requests. | Required for requests with a payload. |
+| `x-encryption-mode` | Set to `server` (default) or `client` when creating escrows. | Optional (used on `POST /escrows`). |
+
+---
+
+## Standard Response Headers & Tracing
+
+Every response emitted by the Prova API includes the following observability headers:
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+x-request-id: req_01j984bcd4e5f6a7...
+Access-Control-Allow-Origin: *
+Strict-Transport-Security: max-age=31536000
 ```
 
-## Try your first request
+- **`x-request-id`:** Unique identifier generated for every inbound request. Always include this ID when reporting issues or inspecting server logs.
 
-<Steps>
-  <Step title="Open an endpoint">
-    Pick **Get a post** from the Posts group in the sidebar.
-  </Step>
-  <Step title="Send it">
-    Keep the default id of `1` and press **Send**. The response panel shows a
-    real `200` with the post body.
-  </Step>
-  <Step title="Change the input">
-    Try an id above `100` to see the API's `404` behavior.
-  </Step>
-</Steps>
+---
 
-Writes are safe to experiment with: the demo server accepts `POST` requests
-and echoes the created resource back with a generated id without storing it.
+## Rate Limits
 
-## Make this reference yours
+The API enforces token-bucket rate limits per client IP / user session:
+- **General authenticated routes:** 300 requests per minute.
+- **Authentication Nonce requests (`/auth/wallet/nonce`):** 20 requests per minute.
+- **OAuth 2.0 Token Exchange (`/api-credentials/oauth/token`):** 30 requests per minute.
+- **Webhooks (`/webhooks/*`):** 300 requests per minute.
 
-This sample exists so the reference has something real to show. To document
-your own API, replace `openapi.yaml` at the repository root with your
-specification — the endpoint pages, navigation, and playground regenerate from
-it on the next publish.
+When a limit is exceeded, the server returns `429 Too Many Requests` with a `Retry-After` header indicating how many seconds to wait.
 
-<Note type="info" title="Keep the overview pages">
-  Readers orient faster when a reference opens with what the API does, how to
-  authenticate, and one runnable request. Rewrite this page and
-  [Authentication](/api/authentication) for your API instead of deleting them.
-</Note>
+---
+
+## OpenAPI 3.1 Specification
+
+Prova publishes a machine-readable OpenAPI 3.1.0 specification at:
+
+```text
+GET https://pilot.getprova.trade/api/v1/docs/openapi.json
+```
+
+Use this document to generate typed client SDKs, mock servers, and Postman collections.

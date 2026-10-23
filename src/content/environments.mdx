@@ -1,0 +1,76 @@
+---
+title: Environments & Networks
+description: Supported networks, testnet contract deployments, RPC configuration, and production readiness.
+---
+
+Prova operates on **Arbitrum Sepolia** for development, sandbox integration, and the pilot validation phase.
+
+---
+
+## Environment Matrix
+
+| Environment | Status | Base URL | Network | Chain ID |
+| :--- | :--- | :--- | :--- | :--- |
+| **Sandbox / Pilot** | Live (Testnet) | `https://pilot.getprova.trade/api/v1` | Arbitrum Sepolia | `421614` |
+| **Local Development** | Available | `http://localhost:3000/api/v1` | Local Node / Anvil | `421614` |
+| **Production (Mainnet)** | Not Enabled | Pending Audits | Arbitrum One | `42161` |
+
+<Note type="warning" title="Production Readiness Status">
+  Prova is currently in **Phase 1: Testnet Validation Mode**. Smart contracts on Arbitrum Sepolia are functional but **unaudited**. Production mainnet access, institutional staking pools, and real-money settlements are disabled until external cryptographic and Solidity audits are complete.
+</Note>
+
+---
+
+## Deployed Smart Contracts (Arbitrum Sepolia)
+
+### 1. ReineiraOS Settlement Infrastructure
+These core protocol contracts govern capital pooling, escrow locks, and cross-chain messaging:
+
+| Contract | Address | Explorer Link |
+| :--- | :--- | :--- |
+| **ConfidentialEscrow** | `0xC4333F84F5034D8691CB95f068def2e3B6DC60Fa` | [Arbitrum Sepolia Explorer](https://sepolia.arbiscan.io/address/0xC4333F84F5034D8691CB95f068def2e3B6DC60Fa) |
+| **ConfidentialCoverageManager** | `0x766e9508BD41BCE0e788F16Da86B3615386Ff6f6` | [Arbitrum Sepolia Explorer](https://sepolia.arbiscan.io/address/0x766e9508BD41BCE0e788F16Da86B3615386Ff6f6) |
+| **PoolFactory** | `0x03bAc36d45fA6f5aD8661b95D73452b3BedcaBFD` | [Arbitrum Sepolia Explorer](https://sepolia.arbiscan.io/address/0x03bAc36d45fA6f5aD8661b95D73452b3BedcaBFD) |
+| **PolicyRegistry** | `0xf421363B642315BD3555dE2d9BD566b7f9213c8E` | [Arbitrum Sepolia Explorer](https://sepolia.arbiscan.io/address/0xf421363B642315BD3555dE2d9BD566b7f9213c8E) |
+
+### 2. Token Contracts
+| Token | Address | Decimals | Notes |
+| :--- | :--- | :--- | :--- |
+| **cUSDC** | `0x6b6e6479b8b3237933c3ab9d8be969862d4ed89f` | 6 | Confidential wrapped USDC (IFHERC20) |
+| **USDC** | `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d` | 6 | Testnet ERC-20 USDC on Arbitrum Sepolia |
+
+### 3. Prova Plugin Contracts
+Institutions deploy dedicated instances of Prova's plugins, configured with their proprietary risk curves and parameters:
+- `TradeInvoiceResolver` (implements `IConditionResolver`)
+- `TradeCreditInsurancePolicy` (implements `IUnderwriterPolicy`)
+- `DebtorExposureRegistry` (solvency and concentration guardrails)
+- `OracleDebtorProof` (`IDebtorProof` adapter)
+- `InsuranceClaimsRegistry` (Merkle commitment anchor)
+
+---
+
+## Network & RPC Configuration
+
+To configure your EVM tools (Hardhat, Foundry, Viem, MetaMask):
+
+```json
+{
+  "networkName": "Arbitrum Sepolia",
+  "chainId": 421614,
+  "currencySymbol": "ETH",
+  "rpcUrls": [
+    "https://sepolia-rollup.arbitrum.io/rpc"
+  ],
+  "blockExplorerUrls": [
+    "https://sepolia.arbiscan.io"
+  ]
+}
+```
+
+---
+
+## Known Limitations in Testnet MVP
+
+1. **Claims Dispute Settlement:** Claims and protracted default transitions are fully tracked off-chain in the database; automated on-chain execution of settlement transfers from liquidity pools is undergoing final hardening.
+2. **Payment Truth Oracle:** The pilot uses `ManualPaymentAttestation.sol` for payment verification; automated zkTLS (Reclaim Protocol) bank-feed integration is in active testing.
+3. **Condition Fee Lever:** Protocol fees can be configured via `setConditionFee` on `TradeInvoiceResolver`, but fee collection on testnet escrows is set to zero for partner testing.

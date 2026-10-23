@@ -1,0 +1,82 @@
+---
+title: Troubleshooting & FAQ
+description: Common integration failure modes, diagnostic steps, error codes, and technical answers.
+---
+
+This section covers common issues encountered when integrating with the Prova API and smart contracts, along with diagnostic steps and verified resolutions.
+
+---
+
+## Troubleshooting Guide
+
+### 1. `401 Unauthorized` during SIWE Signature Verification
+- **Symptom:** Calling `POST /api/v1/auth/wallet/verify` returns `401 Unauthorized` with `Invalid signature`.
+- **Probable Causes:**
+  - The authentication nonce expired (nonces expire after 5 minutes).
+  - The EIP-4361 message `chainId` did not match `421614` (Arbitrum Sepolia).
+  - The address in the SIWE statement does not match the public key recovered from the signature.
+- **Diagnostic Steps:**
+  1. Inspect the timestamp on `POST /api/v1/auth/wallet/nonce`. If more than 5 minutes have passed, fetch a fresh nonce.
+  2. Verify that your wallet client has set `chainId: 421614`.
+  3. Ensure the `wallet_address` parameter sent in the verify payload is checksummed or matches the message text exactly.
+
+---
+
+### 2. `409 Conflict: Illegal policy transition`
+- **Symptom:** Calling `POST /institutions/:id/policies/:policyId/issue` returns `409 Conflict`.
+- **Probable Causes:**
+  - The policy is currently in `QUOTED` state and must be accepted before it can be issued.
+  - The policy was already cancelled or expired.
+- **Diagnostic Steps:**
+  1. Query `GET /institutions/:id/policies/:policyId` to inspect the `status` field.
+  2. Review the [Policy Lifecycle Guide](/guides/policy-lifecycle). The required sequence is: `DRAFT` → `QUOTED` → `ACCEPTED` → `ISSUED` → `ACTIVE`.
+  3. Call `POST /institutions/:id/policies/:policyId/accept` prior to issuing.
+
+---
+
+### 3. Smart Contract Revert: `InvoiceAlreadyRegistered`
+- **Symptom:** Calling `ConfidentialEscrow.create()` reverts on-chain with `InvoiceAlreadyRegistered(bytes32)`.
+- **Probable Causes:**
+  - An escrow with the exact same buyer address, seller address, face amount, and maturity date was already created on `TradeInvoiceResolver`.
+- **Diagnostic Steps:**
+  1. Inspect the invoice parameters in your ERP or request payload.
+  2. The resolver hashes `keccak256(abi.encode(buyer, seller, invoiceAmount, dueDate))` to prevent double-invoicing.
+  3. Ensure that your external invoice reference or due date differentiates distinct commercial shipments.
+
+---
+
+### 4. Smart Contract Revert: `StaleOracleScore`
+- **Symptom:** Policy quotation or coverage purchase reverts on-chain with `StaleOracleScore`.
+- **Probable Causes:**
+  - The credit score risk proof submitted by the backend was generated more than `maxScoreStaleness` seconds ago (default 15 minutes).
+- **Diagnostic Steps:**
+  1. Query `GET /api/v1/credit-score/:buyerAddress` to obtain a fresh `risk_proof` and inspect `expires_at`.
+  2. Ensure your backend submits the coverage transaction promptly after receiving the score.
+
+---
+
+### 5. `422 Unprocessable Entity: Validation Failed`
+- **Symptom:** Submitting an escrow or policy application returns `422 Unprocessable Entity`.
+- **Probable Causes:**
+  - `requested_coverage_pct_bps` exceeds `10000` (100%).
+  - Invoice `amount` is negative or zero.
+  - Date strings do not match the expected `YYYY-MM-DD` ISO format.
+- **Resolution:**
+  - Check the `invalid_params` array in the response body for the exact offending field name and validation constraint.
+
+---
+
+## Frequently Asked Questions
+
+### Is Prova an insurance company or custodian?
+**No.** Prova is programmable trade-credit infrastructure. Prova contracts are plugins for ReineiraOS. Prova never custodies client deposits, never issues insurance policies as a balance-sheet underwriter, and holds no client funds. Premiums, reserves, and payouts live inside audited decentralized smart contracts.
+
+### Does Prova publish buyer financial information on-chain?
+**No.** Sensitive counterparty data (credit limits, credit scores, concentration caps, risk curves) is encrypted using **Fully Homomorphic Encryption (FHE via Fhenix CoFHE)**. Smart contracts perform risk math on encrypted ciphertexts (`euint64`, `euint32`). Plaintext values are never published to public blockchain state.
+
+### Which currencies are supported?
+The testnet implementation uses **USDC** and **cUSDC** (confidential wrapped USDC) on Arbitrum Sepolia. The `ConfidentialEscrow` engine is token-agnostic and designed to support any compliant `IFHERC20` confidential stablecoin.
+
+### How do I get testnet tokens for Arbitrum Sepolia?
+1. Obtain Arbitrum Sepolia testnet ETH from public faucets (e.g., QuickNode or Alchemy Sepolia faucets).
+2. For testnet USDC, interact with the testnet token contract at `0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d` or use Prova's authenticated seed endpoint `POST /api/v1/demo/seed` to configure sandbox testing balances.
